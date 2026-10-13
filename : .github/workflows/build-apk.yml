@@ -1,0 +1,32 @@
+name: Build Android APK
+on: workflow_dispatch
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Find ROM (any .z64 in repo root or rom/)
+        run: |
+          ROM=$(ls ./*.z64 rom/*.z64 2>/dev/null | head -1)
+          test -n "$ROM" || { echo "Upload your .z64 ROM to the repo"; exit 1; }
+          cp "$ROM" /tmp/baserom.us.z64
+      - name: Clone Android port
+        run: git clone --recursive --branch sm64ex_nightly https://github.com/VDavid003/sm64-port-android-base port
+      - name: Copy ROM
+        run: cp /tmp/baserom.us.z64 port/app/jni/src/baserom.us.z64
+      - name: Build Docker image
+        run: cd port && docker build . -t sm64_android
+      - name: Link SDL sources
+        run: |
+          cd port
+          docker run --rm -v $(pwd):/sm64 sm64_android sh -c "ln -nsf /SDL2-2.0.12/src /sm64/app/jni/SDL/src"
+          docker run --rm -v $(pwd):/sm64 sm64_android sh -c "ln -nsf /SDL2-2.0.12/include /sm64/app/jni/SDL/include"
+      - name: Native build
+        run: cd port && docker run --rm -v $(pwd):/sm64 sm64_android sh -c "cd /sm64/app/jni/src && make --jobs 4"
+      - name: Android build
+        run: cd port && docker run --rm -v $(pwd):/sm64 sm64_android sh -c "./gradlew assembleDebug"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SM64-debug-apk
+          path: port/app/build/outputs/apk/debug/app-debug.apk
